@@ -1,7 +1,3 @@
-local parsers = require("nvim-treesitter.parsers")
-local ts_utils = require("nvim-treesitter.ts_utils")
-local utils = require("refactoring.utils")
-
 --- local myEnum = Enum {
 ---     'Foo',          -- Takes value 1
 ---     'Bar',          -- Takes value 2
@@ -9,6 +5,11 @@ local utils = require("refactoring.utils")
 ---     'Baz',          -- Takes value 11
 --- }
 
+---@class RefactorQuery
+---@field query? Query
+---@field bufnr integer
+---@field filetype string
+---@field root TSNode
 local Query = {}
 Query.__index = Query
 
@@ -16,18 +17,52 @@ Query.query_type = {
     FunctionArgument = "definition.function_argument",
     LocalVarName = "definition.local_name",
     Reference = "reference",
-    Statement = "definition.statement",
-    Scope = "definition.scope",
-    Block = "definition.block",
-    Declarator = "definition.local_declarator",
-    LocalVarValue = "definition.local_value",
 }
 
+---@param bufnr integer
+---@param filetype string
+---@return TSNode
 function Query.get_root(bufnr, filetype)
-    local parser = parsers.get_parser(bufnr or 0, filetype)
+    local lang = vim.treesitter.language.get_lang(filetype)
+    local parser = vim.treesitter.get_parser(bufnr, lang)
+    if not parser then
+        error(
+            "No treesitter parser found. Install one using :TSInstall <language>"
+        )
+    end
     return parser:parse()[1]:root()
 end
 
+---@param bufnr integer
+---@param filetype string
+---@param query_name string
+---@return RefactorQuery
+function Query.from_query_name(bufnr, filetype, query_name)
+    local lang = vim.treesitter.language.get_lang(filetype)
+
+    if lang == nil then
+        error(string.format("No treesitter lang for filetype %s", filetype))
+    end
+
+    local query = vim.treesitter.query.get(lang, query_name)
+
+    if query == nil then
+        error(
+            string.format(
+                "No query for treesiter lang %s and query_name %s",
+                lang,
+                query_name
+            )
+        )
+    end
+
+    return Query:new(bufnr, filetype, query)
+end
+
+---@param bufnr integer
+---@param filetype string
+---@param query Query
+---@return RefactorQuery
 function Query:new(bufnr, filetype, query)
     return setmetatable({
         query = query,
@@ -37,39 +72,9 @@ function Query:new(bufnr, filetype, query)
     }, self)
 end
 
-function Query:get_scope_over_region(region, capture_name)
-    capture_name = capture_name or Query.query_type.Scope
-    local start_row, start_col, end_row, end_col = region:to_ts()
-    local start_scope = self:get_scope_by_position(
-        start_row,
-        start_col,
-        capture_name
-    )
-    local end_scope = self:get_scope_by_position(end_row, end_col, capture_name)
-
-    if start_scope ~= end_scope then
-        error("Selection spans over two scopes, cannot determine scope")
-    end
-
-    return start_scope
-end
-
-function Query:get_scope_by_position(line, col, capture_name)
-    capture_name = capture_name or Query.query_type.Scope
-    local out = nil
-    for id, n, _ in self.query:iter_captures(self.root, self.bufnr, 0, -1) do
-        if
-            self.query.captures[id] == capture_name
-            and ts_utils.is_in_node_range(n, line, col)
-            and (out == nil or utils.node_contains(out, n))
-        then
-            out = n
-        end
-    end
-
-    return out
-end
-
+---@param scope TSNode
+---@param captures string|string[]
+---@return TSNode[]
 function Query:pluck_by_capture(scope, captures)
     if type(captures) ~= "table" then
         captures = { captures }
@@ -88,20 +93,32 @@ function Query:pluck_by_capture(scope, captures)
     return out
 end
 
+---@param scope TSNode
+---@param sexpr string
+---@param bufnr integer
+---@return TSNode[]
 function Query.find_occurrences(scope, sexpr, bufnr)
     local filetype = vim.bo[bufnr].filetype
 
-    -- TODO: Ask tj why my life is terrible
-    local sexpr_query = vim.treesitter.parse_query(
-        filetype,
-        sexpr .. " @tmp_capture"
-    )
-
-    local occurances = {}
-    for _, n in sexpr_query:iter_captures(scope, bufnr, 0, -1) do
-        table.insert(occurances, n)
+    if not sexpr:find("@") then
+        --- @type string
+        sexpr = sexpr .. " @tmp_capture"
     end
-    return occurances
+
+    local lang = vim.treesitter.language.get_lang(filetype)
+    local ok, sexpr_query = pcall(vim.treesitter.query.parse, lang, sexpr)
+    if not ok then
+        error(
+            string.format("Invalid query: '%s'\n error: %s", sexpr, sexpr_query)
+        )
+    end
+
+    local occurrences = {}
+    for _, n in sexpr_query:iter_captures(scope, bufnr, 0, -1) do
+        table.insert(occurrences, n)
+    end
+
+    return occurrences
 end
 
 return Query

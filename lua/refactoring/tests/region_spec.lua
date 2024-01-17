@@ -8,6 +8,7 @@ local function setup()
         "foo",
         "if (true) {",
         "    bar",
+        "이미지가 서버에 저장되었습니다",
         "}",
     })
 end
@@ -30,16 +31,27 @@ describe("Region", function()
         eq({ "(true)" }, region:get_text())
     end)
 
-    it("select text : multi-partial-line", function()
+    it("select text : multibyte-partial-line", function()
         setup()
 
         -- TODO: Why is first selection just not present...
         vim.cmd(":1")
         vim_motion("jwvje")
-        eq("n", vim.fn.mode())
+        eq("n", vim.api.nvim_get_mode().mode)
         eq(3, vim.fn.line("."))
         local region = Region:from_current_selection()
         eq({ "(true) {", "    bar" }, region:get_text())
+    end)
+
+    it("select text : multi-partial-line", function()
+        setup()
+
+        vim.cmd(":4")
+        vim_motion("viw")
+        eq("n", vim.api.nvim_get_mode().mode)
+        eq(4, vim.fn.line("."))
+        local region = Region:from_current_selection()
+        eq({ "이미지가" }, region:get_text())
     end)
 
     it("contain region", function()
@@ -65,5 +77,18 @@ describe("Region", function()
         for _, v in pairs(outs) do
             eq(false, region:contains(v))
         end
+    end)
+
+    it("is empty", function()
+        local region = Region:from_values(0, 0, 0, 0, 0)
+        eq(true, region:is_empty())
+        region = Region:from_values(0, 1, 0, 0, 0)
+        eq(false, region:is_empty())
+        region = Region:from_values(0, 0, 1, 0, 0)
+        eq(false, region:is_empty())
+        region = Region:from_values(0, 0, 0, 1, 0)
+        eq(false, region:is_empty())
+        region = Region:from_values(0, 0, 0, 0, 1)
+        eq(false, region:is_empty())
     end)
 end)

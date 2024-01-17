@@ -1,5 +1,4 @@
 local Region = require("refactoring.region")
-local ts_utils = require("nvim-treesitter.ts_utils")
 local Query = require("refactoring.query")
 local utils = require("refactoring.utils")
 local test_utils = require("refactoring.tests.utils")
@@ -36,10 +35,7 @@ describe("Utils", function()
         assert.are.same({
             bar = 69,
             baz = 420,
-        }, utils.table_key_intersect(
-            a,
-            b
-        ))
+        }, utils.table_key_intersect(a, b))
     end)
 
     it("node intersection & complement", function()
@@ -47,7 +43,7 @@ describe("Utils", function()
         local query = Query:new(
             bufnr,
             filetype,
-            vim.treesitter.get_query(filetype, "locals")
+            vim.treesitter.query.get(filetype, "locals")
         )
         local root = Query.get_root(bufnr, filetype)
 
@@ -60,15 +56,10 @@ describe("Utils", function()
         local intersections = utils.region_intersect(captures, region)
 
         assert.are.same(#intersections, 1)
-        assert.are.same(ts_utils.get_node_text(intersections[1]), {
-            "bar",
-        })
-
+        assert.are.same(vim.treesitter.get_node_text(intersections[1], bufnr), "bar")
         local complements = utils.region_complement(captures, region)
 
         assert.are.same(#complements, 1)
-        assert.are.same(ts_utils.get_node_text(complements[1]), {
-            "foo",
-        })
+        assert.are.same(vim.treesitter.get_node_text(complements[1], bufnr), "foo")
     end)
 end)

@@ -1,27 +1,57 @@
-local Query = require("refactoring.query")
+local Config = require("refactoring.config")
+local TreeSitter = require("refactoring.treesitter")
+local Point = require("refactoring.point")
 
-local function refactor_setup(bufnr, options)
-    bufnr = bufnr or vim.fn.bufnr()
+-- TODO: Move refactor into the actual init function.  Seems weird
+-- to have here.  Also make refactor object into a table instead of this
+-- monstrosity
+
+---@param input_bufnr integer
+---@param config Config
+---@return fun(): true, Refactor
+local function refactor_setup(input_bufnr, config)
+    input_bufnr = input_bufnr or vim.api.nvim_get_current_buf()
+    config = config or Config.get()
 
     return function()
-        local filetype = vim.bo[bufnr].filetype
-        local root = Query.get_root(bufnr, filetype)
+        --- @type integer
+        local bufnr
+        if config:get_test_bufnr() ~= nil then
+            bufnr = config:get_test_bufnr()
+        else
+            bufnr = input_bufnr
+        end
+
+        local ts = TreeSitter.get_treesitter()
+
+        local filetype = vim.bo[bufnr].filetype --[[@as ft]]
+        local root = ts:get_root()
+        local win = vim.api.nvim_get_current_win()
+        local cursor = Point:from_cursor()
+
+        ---@class Refactor
+        ---@field region? RefactorRegion
+        ---@field region_node? TSNode
+        ---@field identifier_node? TSNode
+        ---@field scope? TSNode
+        ---@field cursor_col_adjustment? integer
+        ---@field text_edits? LspTextEdit[] | {bufnr?: integer}[]
+        ---@field code code_generation
+        ---@field return_value string used by debug.get_path
+        ---@field success_message? string
         local refactor = {
-            code = options.get_code_generation_for(filetype),
+            ---@type {cursor: integer, func_call: integer|nil}
+            whitespace = {
+                cursor = assert(vim.fn.indent(cursor.row)),
+            },
+            cursor = cursor,
+            code = config:get_code_generation_for(filetype),
+            ts = ts,
             filetype = filetype,
             bufnr = bufnr,
-            query = Query:new(
-                bufnr,
-                filetype,
-                vim.treesitter.get_query(filetype, "refactoring")
-            ),
-            locals = Query:new(
-                bufnr,
-                filetype,
-                vim.treesitter.get_query(filetype, "locals")
-            ),
+            win = win,
             root = root,
-            options = options,
+            config = config,
             buffers = { bufnr },
         }
 

@@ -1,3 +1,4 @@
+local TreeSitter = require("refactoring.treesitter")
 local Query = require("refactoring.query")
 local Region = require("refactoring.region")
 local test_utils = require("refactoring.tests.utils")
@@ -8,35 +9,26 @@ describe("Query", function()
     it("should capture sexpr", function()
         vim.cmd(":new")
         vim.cmd(":set filetype=typescript")
-        local bufnr = vim.fn.bufnr()
+        local bufnr = vim.api.nvim_get_current_buf()
         local file = test_utils.read_file("query.ts")
         vim.api.nvim_buf_set_lines(
             0,
             0,
             -1,
             false,
-            test_utils.split_string(file, "\n")
+            utils.split_string(file, "\n")
         )
-
-        local root = Query.get_root()
 
         vim.cmd(":14")
         test_utils.vim_motion("fovt-h")
 
-        local query = Query:new(
-            0,
-            "typescript",
-            vim.treesitter.get_query("typescript", "refactoring")
-        )
         local region = Region:from_current_selection()
-        local extract_node = root:named_descendant_for_range(region:to_ts())
-        local scope = query:get_scope_over_region(region)
+        local ts = TreeSitter.get_treesitter()
+        local extract_node = region:to_ts_node(ts:get_root())
+        local scope = ts:get_scope(extract_node)
 
-        local occurrences = Query.find_occurrences(
-            scope,
-            extract_node:sexpr(),
-            bufnr
-        )
+        local occurrences =
+            Query.find_occurrences(scope, extract_node:sexpr(), bufnr)
         eq(3, #occurrences)
 
         local query_parts = {

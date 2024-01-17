@@ -1,66 +1,72 @@
 local Path = require("plenary.path")
-local lsp_utils = require("refactoring.lsp_utils")
+local Config = require("refactoring.config")
+local utils = require("refactoring.utils")
 
 local M = {}
+
+---@param file string
+---@return string
 function M.read_file(file)
     return Path:new("lua", "refactoring", "tests", file):read()
 end
 
+---@param motion string
 function M.vim_motion(motion)
     vim.cmd(string.format(':exe "norm! %s\\<esc>"', motion))
 end
 
-function M.split_string(inputstr, sep)
-    local t = {}
-    -- [[ lets not think about the edge case there... --]]
-    while #inputstr > 0 do
-        local start, stop = inputstr:find(sep)
-        local str
-        if not start then
-            str = inputstr
-            inputstr = ""
-        else
-            str = inputstr:sub(1, start - 1)
-            inputstr = inputstr:sub(stop + 1)
-        end
-        table.insert(t, str)
+---@param file string
+---@return string[]
+function M.get_contents(file)
+    return utils.split_string(M.read_file(file), "\n")
+end
+
+---@param filename_prefix string
+---@param cwd string
+function M.run_inputs_if_exist(filename_prefix, cwd)
+    local input_file_name = string.format("%s.inputs", filename_prefix)
+    local inputs_file =
+        Path:new(cwd, "lua", "refactoring", "tests", input_file_name)
+    if inputs_file:exists() then
+        local inputs =
+            M.get_contents(string.format("%s.inputs", filename_prefix))
+        Config.get():automate_input(inputs)
     end
-    return t
 end
 
-function M.get_references_under_cursor(bufnr, definition_region)
-    local references
-    vim.wait(100000, function()
-        -- TODO: why cant i pcall this?
-        references = lsp_utils.get_references_under_cursor(
-            bufnr,
-            definition_region
-        )
-        return references
-    end)
-    return references
+---@param filename_prefix string
+---@return string[]
+local function get_commands(filename_prefix)
+    return utils.split_string(
+        M.read_file(string.format("%s.commands", filename_prefix)),
+        "\n"
+    )
 end
 
-function M.get_definition_under_cursor(bufnr)
-    local definition
-    vim.wait(100000, function()
-        local ok, value = pcall(lsp_utils.get_definition_under_cursor, bufnr)
-        definition = value
-        return ok
-    end)
-    return definition
+---@param filename_prefix string
+function M.run_commands(filename_prefix)
+    for _, command in pairs(get_commands(filename_prefix)) do
+        vim.cmd(command)
+    end
 end
 
+---@param file string
+---@return integer bufnr
 function M.open_test_file(file)
     vim.cmd(":e  ./lua/refactoring/tests/" .. file)
     return vim.api.nvim_get_current_buf()
 end
 
-function M.start_lsp(bufnr)
-    vim.cmd(":LspStart")
-    vim.wait(10000, function()
-        return #vim.lsp.buf_get_clients(bufnr) > 0
-    end)
+---@param test_name string: test name to check if we should skip
+---@param tests_to_skip string[]: table with names of tests that we want to skip
+---@return boolean: return whether a test should be skipped if it's in table of tests to skip
+function M.check_if_skip_test(test_name, tests_to_skip)
+    for _, test in pairs(tests_to_skip) do
+        if test_name == test then
+            return true
+        end
+    end
+    return false
 end
 
 return M
